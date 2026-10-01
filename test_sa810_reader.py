@@ -1,6 +1,15 @@
 import unittest
 
-from sa810_reader import checksum, set_encryption_packet
+from sa810_reader import Sa810Client, checksum, inventory_packet, set_encryption_packet
+
+
+class FakeHidDevice:
+    def __init__(self) -> None:
+        self.reports: list[bytes] = []
+
+    def write(self, report: bytes) -> int:
+        self.reports.append(bytes(report))
+        return len(report)
 
 
 class EncryptionPacketTests(unittest.TestCase):
@@ -30,6 +39,26 @@ class EncryptionPacketTests(unittest.TestCase):
             with self.subTest(mode=mode, password=password):
                 with self.assertRaises(ValueError):
                     set_encryption_packet(mode, password)
+
+
+class UsbTransportTests(unittest.TestCase):
+    def test_usb_command_is_wrapped_in_a_64_byte_hid_report(self) -> None:
+        client = Sa810Client()
+        device = FakeHidDevice()
+        client._transport = "usb"
+        client._hid_device = device
+        packet = inventory_packet()
+
+        client._send(packet)
+
+        self.assertEqual(len(device.reports), 1)
+        self.assertEqual(len(device.reports[0]), 65)
+        self.assertEqual(device.reports[0][0], 0x00)
+        self.assertEqual(device.reports[0][1:1 + len(packet)], packet)
+        self.assertEqual(
+            device.reports[0][1 + len(packet):],
+            bytes(Sa810Client.USB_REPORT_SIZE - len(packet)),
+        )
 
 
 if __name__ == "__main__":

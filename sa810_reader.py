@@ -135,8 +135,13 @@ def parse_tag(info: bytes) -> ReaderTag | None:
     )
 
 
-class Sa810TcpClient:
-    """Background TCP connection with a thread-safe event queue."""
+class Sa810Client:
+    """Background TCP or USB HID connection with a thread-safe event queue."""
+
+    USB_VENDOR_ID = 0x04D8
+    USB_PRODUCT_ID = 0x033F
+    USB_INTERFACE = 0
+    USB_REPORT_SIZE = 64
 
     def __init__(self) -> None:
         self.tags: queue.Queue[ReaderTag] = queue.Queue()
@@ -145,6 +150,8 @@ class Sa810TcpClient:
         self.host = ""
         self.port = 0
         self._socket: socket.socket | None = None
+        self._hid_device = None
+        self._transport = ""
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._inventory = threading.Event()
@@ -164,6 +171,7 @@ class Sa810TcpClient:
         with self._lock:
             self._socket = sock
         self.host, self.port = host, port
+        self._transport = "tcp"
         self.connected = True
         self._stop.clear()
         self._inventory.clear()
@@ -175,11 +183,63 @@ class Sa810TcpClient:
         self._send_thread.start()
         self.messages.put(f"Connected to {host}:{port}")
 
+    def connect_usb(self) -> None:
+        self.disconnect()
+        try:
+            import hid
+        except ImportError as error:
+            raise RuntimeError(
+                "USB support requires hidapi. Install it with: "
+                "python -m pip install hidapi") from error
+
+        devices = [
+            item for item in hid.enumerate(
+                self.USB_VENDOR_ID, self.USB_PRODUCT_ID)
+            if item.get("interface_number") == self.USB_INTERFACE
+        ]
+        if not devices:
+            raise ConnectionError(
+                "SA810 USB HID interface not found. Connect the reader, "
+                "close the Yanzeo demo, and try again.")
+
+        device = hid.device()
+        try:
+            device.open_path(devices[0]["path"])
+            device.set_nonblocking(1)
+        except Exception as error:
+            try:
+                device.close()
+            except Exception:
+                pass
+            raise ConnectionError(
+                "Could not open the SA810 USB interface. Close the Yanzeo "
+                "demo or any other program using the reader.") from error
+
+        with self._lock:
+            self._hid_device = device
+        self.host, self.port = "USB HID", 0
+        self._transport = "usb"
+        self.connected = True
+        self._stop.clear()
+        self._inventory.clear()
+        self._cycle_done.set()
+        self._framer = PacketFramer()
+        self._receive_thread = threading.Thread(
+            target=self._receive_loop, daemon=True)
+        self._send_thread = threading.Thread(
+            target=self._send_loop, daemon=True)
+        self._receive_thread.start()
+        self._send_thread.start()
+        product = devices[0].get("product_string") or "SA810"
+        serial = devices[0].get("serial_number") or "unknown serial"
+        self.messages.put(f"Connected to {product} over USB ({serial})")
+
     def disconnect(self) -> None:
         self._inventory.clear()
         self._stop.set()
         with self._lock:
             sock, self._socket = self._socket, None
+            hid_device, self._hid_device = self._hid_device, None
         if sock:
             try:
                 sock.shutdown(socket.SHUT_RDWR)
@@ -189,7 +249,13 @@ class Sa810TcpClient:
                 sock.close()
             except OSError:
                 pass
+        if hid_device:
+            try:
+                hid_device.close()
+            except Exception:
+                pass
         self.connected = False
+        self._transport = ""
 
     def set_power(self, dbm: int) -> None:
         self._send(set_power_packet(dbm))
@@ -213,9 +279,23 @@ class Sa810TcpClient:
     def _send(self, packet: bytes) -> None:
         with self._lock:
             sock = self._socket
-        if not sock:
-            raise ConnectionError("Reader is not connected")
-        sock.sendall(packet)
+            hid_device = self._hid_device
+            transport = self._transport
+        if transport == "tcp" and sock:
+            sock.sendall(packet)
+            return
+        if transport == "usb" and hid_device:
+            if len(packet) > self.USB_REPORT_SIZE:
+                raise ValueError("RCP packet is too large for one USB HID report")
+            report = b"\x00" + packet.ljust(self.USB_REPORT_SIZE, b"\x00")
+            try:
+                written = hid_device.write(report)
+            except Exception as error:
+                raise OSError(f"USB HID write failed: {error}") from error
+            if written <= 0:
+                raise OSError("USB HID write failed")
+            return
+        raise ConnectionError("Reader is not connected")
 
     def _send_loop(self) -> None:
         while not self._stop.is_set():
@@ -238,14 +318,27 @@ class Sa810TcpClient:
         while not self._stop.is_set():
             with self._lock:
                 sock = self._socket
-            if not sock:
+                hid_device = self._hid_device
+                transport = self._transport
+            if transport == "tcp" and not sock:
+                return
+            if transport == "usb" and not hid_device:
                 return
             try:
-                data = sock.recv(4096)
-                if not data:
-                    self.messages.put("Reader closed the TCP connection")
-                    self.connected = False
-                    return
+                if transport == "usb":
+                    try:
+                        report = hid_device.read(self.USB_REPORT_SIZE, 200)
+                    except Exception as error:
+                        raise OSError(f"USB HID read failed: {error}") from error
+                    if not report:
+                        continue
+                    data = bytes(report)
+                else:
+                    data = sock.recv(4096)
+                    if not data:
+                        self.messages.put("Reader closed the TCP connection")
+                        self.connected = False
+                        return
                 for cid, rtn, info in self._framer.feed(data):
                     if cid == CID_READ_C_UII and rtn in (RTN_MESSAGE, RTN_AUTO):
                         tag = parse_tag(info)
@@ -268,3 +361,7 @@ class Sa810TcpClient:
                     self.messages.put(f"Receive error: {error}")
                 self.connected = False
                 return
+
+
+# Backward-compatible name for code using the original TCP-only class.
+Sa810TcpClient = Sa810Client

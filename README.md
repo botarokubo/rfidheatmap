@@ -6,7 +6,7 @@ The application supports a live Yanzeo SA810 reader over TCP and includes a simu
 
 ## Features
 
-- Connect to a Yanzeo SA810 reader over a local network
+- Connect to a Yanzeo SA810 reader over LAN or USB HID
 - Discover EPC tags and select a reference tag
 - Listen for Yanzeo Pairing- or CRC-encrypted tags using reader-side configuration
 - Configure reader transmit power
@@ -32,6 +32,7 @@ Required Python packages:
 - PySide6
 - Matplotlib
 - NumPy
+- hidapi
 
 ## Installation
 
@@ -58,7 +59,7 @@ source .venv/bin/activate
 Install the dependencies:
 
 ```bash
-python -m pip install PySide6 matplotlib numpy
+python -m pip install -r requirements.txt
 ```
 
 Start the application:
@@ -78,7 +79,7 @@ Before connecting, configure the reader with its vendor utility:
 
 In RFID Field Mapper:
 
-1. Select **Live SA810**.
+1. Select **Live SA810 (LAN)**.
 2. Enter the reader IP address and TCP port.
 3. Select the desired transmit power.
 4. Click **Connect**.
@@ -99,6 +100,18 @@ Select **None** and apply the configuration to return the reader to normal, unen
 This application only changes the reader's listening configuration. It does not contain or send the Yanzeo command that encrypts or modifies a physical tag. The password must match the tag's existing encryption configuration.
 
 If the connection fails, confirm that the reader is reachable, the IP address and port are correct, and the local firewall allows the connection.
+
+### USB HID connection
+
+The Yanzeo SA810/QB0A USB command interface is supported on USB interface `MI_00` (`VID 04D8`, `PID 033F`). The keyboard-emulation interface is not used.
+
+1. Connect the reader to the computer by USB.
+2. Close the Yanzeo demo so it cannot send competing commands to the reader.
+3. Select **Live SA810 (USB)**.
+4. Click **Connect**.
+5. Use the tag listener and measurements in the same way as the LAN connection.
+
+If USB support is missing, install it with `python -m pip install hidapi`. Only one program should control the reader at a time.
 
 ## Measurement Workflow
 
@@ -164,7 +177,7 @@ The application stores unavailable frequency and phase fields as zero because th
 
 ```text
 heatmap.py          Main interface, storage, analysis, and export logic
-sa810_reader.py     SA810 TCP protocol client and tag report parser
+sa810_reader.py     SA810 LAN/USB protocol client and tag report parser
 run_heatmap.bat     Optional Windows launcher
 ```
 

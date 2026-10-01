@@ -33,7 +33,7 @@ echo No Python environment with all required packages was found.
 echo Create the project environment and install the dependencies with:
 echo.
 echo     py -3.13 -m venv .venv
-echo     .venv\Scripts\python.exe -m pip install PySide6 matplotlib numpy
+echo     .venv\Scripts\python.exe -m pip install -r requirements.txt
 echo.
 pause
 exit /b 1

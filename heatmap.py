@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QSplitter, QStatusBar, QVBoxLayout, QWidget,
 )
 
-from sa810_reader import Sa810TcpClient
+from sa810_reader import Sa810Client
 
 matplotlib.use("QtAgg")
 
@@ -400,7 +400,7 @@ class CoverageWindow(QMainWindow):
     def __init__(self, store: MeasurementStore | None = None) -> None:
         super().__init__()
         self.store = store or MeasurementStore()
-        self.reader = Sa810TcpClient()
+        self.reader = Sa810Client()
         self._live_reads: list[TagRead] = []
         self._live_context: tuple[str, float, float, float, float, float] | None = None
         self._listening_for_tags = False
@@ -456,7 +456,8 @@ class CoverageWindow(QMainWindow):
         reader_form = QFormLayout(reader_box)
         self._compact_form(reader_form)
         self.reader_mode = QComboBox()
-        self.reader_mode.addItems(("Live SA810", "Simulator"))
+        self.reader_mode.addItems(
+            ("Live SA810 (LAN)", "Live SA810 (USB)", "Simulator"))
         self.reader_host = QLineEdit("192.168.2.120")
         self.reader_port = QLineEdit("49152")
         self.power_input = self._spin(0, 33, 15, 1, " dBm")
@@ -643,7 +644,7 @@ class CoverageWindow(QMainWindow):
         epc = self.epc.text().strip()
         x, y, z = self.x_input.value(), self.y_input.value(), self.z_input.value()
         duration, power = self.duration_input.value(), self.power_input.value()
-        if self.reader_mode.currentText() == "Live SA810":
+        if self.reader_mode.currentText() != "Simulator":
             self.start_live_measurement(epc, x, y, z, duration, power)
             return
         self.measure_button.setEnabled(False)
@@ -686,9 +687,10 @@ class CoverageWindow(QMainWindow):
         self.refresh_heatmap()
 
     def reader_mode_changed(self, mode: str) -> None:
-        live = mode == "Live SA810"
-        self.reader_host.setEnabled(live)
-        self.reader_port.setEnabled(live)
+        live = mode != "Simulator"
+        lan = mode == "Live SA810 (LAN)"
+        self.reader_host.setEnabled(lan)
+        self.reader_port.setEnabled(lan)
         self.connect_button.setEnabled(live)
         self.encryption_mode.setEnabled(live)
         self.apply_encryption_button.setEnabled(live)
@@ -703,7 +705,7 @@ class CoverageWindow(QMainWindow):
 
     def encryption_mode_changed(self, mode: str) -> None:
         enabled = (mode != "None" and
-                   self.reader_mode.currentText() == "Live SA810")
+                   self.reader_mode.currentText() != "Simulator")
         self.encryption_password.setEnabled(enabled)
         if mode == "None":
             self.encryption_password.clear()
@@ -716,9 +718,9 @@ class CoverageWindow(QMainWindow):
             self.encryption_password.setPlaceholderText("Decimal 0-65535")
 
     def apply_listener_encryption(self) -> None:
-        if self.reader_mode.currentText() != "Live SA810":
+        if self.reader_mode.currentText() == "Simulator":
             QMessageBox.information(self, "Live reader required",
-                "Select Live SA810 before applying the listener configuration.")
+                "Select a live SA810 connection before applying the listener configuration.")
             return
         if not self.reader.connected:
             QMessageBox.warning(self, "Reader disconnected",
@@ -747,19 +749,26 @@ class CoverageWindow(QMainWindow):
             self.statusBar().showMessage("Reader disconnected")
             return
         try:
-            host = self.reader_host.text().strip()
-            port = int(self.reader_port.text())
-            self.statusBar().showMessage(f"Connecting to {host}:{port}...")
-            QApplication.processEvents()
-            self.reader.connect(host, port)
+            if self.reader_mode.currentText() == "Live SA810 (USB)":
+                self.statusBar().showMessage("Connecting to SA810 over USB HID...")
+                QApplication.processEvents()
+                self.reader.connect_usb()
+                endpoint = "USB HID"
+            else:
+                host = self.reader_host.text().strip()
+                port = int(self.reader_port.text())
+                self.statusBar().showMessage(f"Connecting to {host}:{port}...")
+                QApplication.processEvents()
+                self.reader.connect(host, port)
+                endpoint = f"{host}:{port}"
             self.reader.set_power(round(self.power_input.value()))
-        except (OSError, ValueError) as error:
+        except (OSError, ValueError, RuntimeError) as error:
             self._set_reader_status(False, "Connection failed")
             QMessageBox.critical(self, "SA810 connection failed", str(error))
             return
-        self._set_reader_status(True, f"Connected to {host}:{port}")
+        self._set_reader_status(True, f"Connected to {endpoint}")
         self.statusBar().showMessage(
-            f"Connected to SA810 at {host}:{port}; TX power applied")
+            f"Connected to SA810 at {endpoint}; TX power applied")
 
     def apply_reader_power(self) -> None:
         power = round(self.power_input.value())
@@ -784,6 +793,7 @@ class CoverageWindow(QMainWindow):
         color = "#18794e" if connected else "#a33"
         self.reader_status.setStyleSheet(f"color: {color}; font-weight: 600;")
         self.connect_button.setText("Disconnect" if connected else "Connect")
+        self.reader_mode.setEnabled(not connected)
 
     def toggle_tag_listener(self) -> None:
         if self._listening_for_tags:
@@ -792,9 +802,9 @@ class CoverageWindow(QMainWindow):
                 self.reader.stop_inventory()
             self.statusBar().showMessage("Tag listener stopped")
             return
-        if self.reader_mode.currentText() != "Live SA810":
+        if self.reader_mode.currentText() == "Simulator":
             QMessageBox.information(self, "Live reader required",
-                "Select Live SA810 and connect before listening for tags.")
+                "Select a live SA810 connection and connect before listening for tags.")
             return
         if not self.reader.connected:
             QMessageBox.warning(self, "Reader disconnected",
@@ -1004,7 +1014,7 @@ class CoverageWindow(QMainWindow):
         self._set_reader_status(False, "Disconnected")
         self._set_listening(False)
         self.clear_detected_tags()
-        self.reader_mode.setCurrentText("Live SA810")
+        self.reader_mode.setCurrentText("Live SA810 (LAN)")
         self.reader_host.setText("192.168.2.120")
         self.reader_port.setText("49152")
         self.power_input.setValue(15)
