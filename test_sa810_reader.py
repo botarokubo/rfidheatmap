@@ -15,18 +15,18 @@ class EncryptionPacketTests(unittest.TestCase):
         self.assertEqual(packet[6:9], bytes((0x00, 0x00, 0x00)))
 
     def test_pairing_mode_uses_one_password_byte(self) -> None:
-        packet = set_encryption_packet("Pairing", "A5")
+        packet = set_encryption_packet("Pairing", "165")
         self.assert_valid_packet(packet)
         self.assertEqual(packet[6:9], bytes((0x01, 0xA5, 0x00)))
 
     def test_crc_mode_uses_two_password_bytes(self) -> None:
-        packet = set_encryption_packet("CRC", "12EF")
+        packet = set_encryption_packet("CRC", "4847")
         self.assert_valid_packet(packet)
         self.assertEqual(packet[6:9], bytes((0x02, 0x12, 0xEF)))
 
     def test_invalid_passwords_are_rejected(self) -> None:
-        for mode, password in (("Pairing", "1234"), ("Pairing", "GG"),
-                               ("CRC", "12"), ("CRC", "ZZZZ")):
+        for mode, password in (("Pairing", "256"), ("Pairing", "GG"),
+                               ("CRC", "65536"), ("CRC", "12EF")):
             with self.subTest(mode=mode, password=password):
                 with self.assertRaises(ValueError):
                     set_encryption_packet(mode, password)

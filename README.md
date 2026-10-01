@@ -89,8 +89,8 @@ In RFID Field Mapper:
 The **Encrypted tag listener** section configures the SA810 to inventory tags that were previously encrypted with the Yanzeo demo or another compatible tool.
 
 1. Stop any active tag listener or measurement.
-2. Select **Pairing** for a one-byte password or **CRC** for a two-byte password.
-3. Enter the same hexadecimal password used when the tag was encrypted.
+2. Select **Pairing** for a password from `0` to `255`, or **CRC** for a password from `0` to `65535`.
+3. Enter the same decimal password shown in the Yanzeo demo. The demo displays CRC passwords as five digits, such as `00000`.
 4. Click **Apply listen configuration**.
 5. Start the tag listener or measurement normally.
 

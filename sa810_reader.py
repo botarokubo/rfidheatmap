@@ -46,25 +46,26 @@ def set_encryption_packet(mode: str, password: str = "") -> bytes:
     It never sends the protocol's destructive Encrypt Type C Tag command.
     """
     normalized_mode = mode.strip().casefold()
-    normalized_password = password.strip().replace(" ", "").upper()
+    normalized_password = password.strip()
     if normalized_mode == "none":
         encryption_type, password_high, password_low = 0x00, 0x00, 0x00
     elif normalized_mode == "pairing":
-        if len(normalized_password) != 2:
-            raise ValueError("Pairing password must be exactly 2 hexadecimal digits.")
         try:
-            password_high = int(normalized_password, 16)
+            value = int(normalized_password, 10)
         except ValueError as error:
-            raise ValueError("Pairing password must contain only hexadecimal digits.") from error
+            raise ValueError("Pairing password must be a decimal number from 0 to 255.") from error
+        if not 0 <= value <= 255:
+            raise ValueError("Pairing password must be a decimal number from 0 to 255.")
+        password_high = value
         encryption_type, password_low = 0x01, 0x00
     elif normalized_mode == "crc":
-        if len(normalized_password) != 4:
-            raise ValueError("CRC password must be exactly 4 hexadecimal digits.")
         try:
-            password_high = int(normalized_password[:2], 16)
-            password_low = int(normalized_password[2:], 16)
+            value = int(normalized_password, 10)
         except ValueError as error:
-            raise ValueError("CRC password must contain only hexadecimal digits.") from error
+            raise ValueError("CRC password must be a decimal number from 0 to 65535.") from error
+        if not 0 <= value <= 65535:
+            raise ValueError("CRC password must be a decimal number from 0 to 65535.")
+        password_high, password_low = value.to_bytes(2, "big")
         encryption_type = 0x02
     else:
         raise ValueError(f"Unsupported encryption mode: {mode}")

@@ -485,14 +485,14 @@ class CoverageWindow(QMainWindow):
         self.encryption_mode.currentTextChanged.connect(
             self.encryption_mode_changed)
         self.encryption_password = QLineEdit()
-        self.encryption_password.setMaxLength(4)
+        self.encryption_password.setMaxLength(5)
         self.encryption_password.setPlaceholderText("Not required")
         self.apply_encryption_button = QPushButton(
             "Apply listen configuration")
         self.apply_encryption_button.clicked.connect(
             self.apply_listener_encryption)
         encryption_form.addRow("Mode", self.encryption_mode)
-        encryption_form.addRow("Password (hex)", self.encryption_password)
+        encryption_form.addRow("Password", self.encryption_password)
         encryption_form.addRow(self.apply_encryption_button)
         encryption_note = QLabel(
             "Reader-side listening only. This does not encrypt or modify tags.")
@@ -709,11 +709,11 @@ class CoverageWindow(QMainWindow):
             self.encryption_password.clear()
             self.encryption_password.setPlaceholderText("Not required")
         elif mode == "Pairing":
-            self.encryption_password.setMaxLength(2)
-            self.encryption_password.setPlaceholderText("2 hex digits, e.g. 01")
+            self.encryption_password.setMaxLength(3)
+            self.encryption_password.setPlaceholderText("Decimal 0-255")
         else:
-            self.encryption_password.setMaxLength(4)
-            self.encryption_password.setPlaceholderText("4 hex digits, e.g. 01A2")
+            self.encryption_password.setMaxLength(5)
+            self.encryption_password.setPlaceholderText("Decimal 0-65535")
 
     def apply_listener_encryption(self) -> None:
         if self.reader_mode.currentText() != "Live SA810":
