@@ -13,6 +13,8 @@ SOI_RESPONSE = 0xCC
 PUBLIC_ADDRESS = 0xFFFF
 CID_READ_C_UII = 0x20
 CID_TX_POWER_SET = 0x51
+CID_ENCRYPTION = 0x84
+CID2_ENCRYPTION_SET = 0x31
 RTN_OK = 0x00
 RTN_FAIL = 0x01
 RTN_MESSAGE = 0x02
@@ -23,8 +25,8 @@ def checksum(data: bytes) -> int:
     return ((~sum(data)) + 1) & 0xFF
 
 
-def build_packet(cid1: int, info: bytes = b"") -> bytes:
-    body = bytes((SOI_COMMAND, 0xFF, 0xFF, cid1, 0x00, len(info))) + info
+def build_packet(cid1: int, info: bytes = b"", cid2: int = 0x00) -> bytes:
+    body = bytes((SOI_COMMAND, 0xFF, 0xFF, cid1, cid2, len(info))) + info
     return body + bytes((checksum(body),))
 
 
@@ -35,6 +37,42 @@ def inventory_packet(antenna: int | None = None) -> bytes:
 
 def set_power_packet(dbm: int) -> bytes:
     return build_packet(CID_TX_POWER_SET, bytes((max(0, min(33, dbm)),)))
+
+
+def set_encryption_packet(mode: str, password: str = "") -> bytes:
+    """Build the reader-side encrypted-tag inventory configuration command.
+
+    This only configures which already-encrypted tags the reader can inventory.
+    It never sends the protocol's destructive Encrypt Type C Tag command.
+    """
+    normalized_mode = mode.strip().casefold()
+    normalized_password = password.strip().replace(" ", "").upper()
+    if normalized_mode == "none":
+        encryption_type, password_high, password_low = 0x00, 0x00, 0x00
+    elif normalized_mode == "pairing":
+        if len(normalized_password) != 2:
+            raise ValueError("Pairing password must be exactly 2 hexadecimal digits.")
+        try:
+            password_high = int(normalized_password, 16)
+        except ValueError as error:
+            raise ValueError("Pairing password must contain only hexadecimal digits.") from error
+        encryption_type, password_low = 0x01, 0x00
+    elif normalized_mode == "crc":
+        if len(normalized_password) != 4:
+            raise ValueError("CRC password must be exactly 4 hexadecimal digits.")
+        try:
+            password_high = int(normalized_password[:2], 16)
+            password_low = int(normalized_password[2:], 16)
+        except ValueError as error:
+            raise ValueError("CRC password must contain only hexadecimal digits.") from error
+        encryption_type = 0x02
+    else:
+        raise ValueError(f"Unsupported encryption mode: {mode}")
+    return build_packet(
+        CID_ENCRYPTION,
+        bytes((encryption_type, password_high, password_low)),
+        CID2_ENCRYPTION_SET,
+    )
 
 
 def rssi_to_dbm(raw: int) -> float:
@@ -155,6 +193,9 @@ class Sa810TcpClient:
     def set_power(self, dbm: int) -> None:
         self._send(set_power_packet(dbm))
 
+    def set_encryption(self, mode: str, password: str = "") -> None:
+        self._send(set_encryption_packet(mode, password))
+
     def start_inventory(self) -> None:
         if not self.connected:
             raise ConnectionError("Reader is not connected")
@@ -213,6 +254,12 @@ class Sa810TcpClient:
                         # RTN_FAIL commonly means an inventory cycle in which
                         # no tag answered; both statuses complete the cycle.
                         self._cycle_done.set()
+                    elif cid == CID_ENCRYPTION:
+                        if rtn == RTN_OK:
+                            self.messages.put("Encrypted-tag listener configuration applied")
+                        else:
+                            self.messages.put(
+                                f"Encrypted-tag listener configuration failed (reader code 0x{rtn:02X})")
             except socket.timeout:
                 continue
             except OSError as error:

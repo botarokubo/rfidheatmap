@@ -477,6 +477,31 @@ class CoverageWindow(QMainWindow):
         self._compact_group(reader_box)
         side_layout.addWidget(reader_box)
 
+        encryption_box = QGroupBox("Encrypted tag listener")
+        encryption_form = QFormLayout(encryption_box)
+        self._compact_form(encryption_form)
+        self.encryption_mode = QComboBox()
+        self.encryption_mode.addItems(("None", "Pairing", "CRC"))
+        self.encryption_mode.currentTextChanged.connect(
+            self.encryption_mode_changed)
+        self.encryption_password = QLineEdit()
+        self.encryption_password.setMaxLength(4)
+        self.encryption_password.setPlaceholderText("Not required")
+        self.apply_encryption_button = QPushButton(
+            "Apply listen configuration")
+        self.apply_encryption_button.clicked.connect(
+            self.apply_listener_encryption)
+        encryption_form.addRow("Mode", self.encryption_mode)
+        encryption_form.addRow("Password (hex)", self.encryption_password)
+        encryption_form.addRow(self.apply_encryption_button)
+        encryption_note = QLabel(
+            "Reader-side listening only. This does not encrypt or modify tags.")
+        encryption_note.setWordWrap(True)
+        encryption_note.setStyleSheet("color: #555; font-size: 11px;")
+        encryption_form.addRow(encryption_note)
+        self._compact_group(encryption_box)
+        side_layout.addWidget(encryption_box)
+
         listener_box = QGroupBox("Tag listener")
         listener_form = QFormLayout(listener_box)
         self._compact_form(listener_form)
@@ -665,12 +690,54 @@ class CoverageWindow(QMainWindow):
         self.reader_host.setEnabled(live)
         self.reader_port.setEnabled(live)
         self.connect_button.setEnabled(live)
+        self.encryption_mode.setEnabled(live)
+        self.apply_encryption_button.setEnabled(live)
+        self.encryption_password.setEnabled(
+            live and self.encryption_mode.currentText() != "None")
         if not live and self.reader.connected:
             self.reader.disconnect()
             self._set_reader_status(False, "Disconnected")
             self._set_listening(False)
         if not live:
             self.statusBar().showMessage("Ready - simulator mode")
+
+    def encryption_mode_changed(self, mode: str) -> None:
+        enabled = (mode != "None" and
+                   self.reader_mode.currentText() == "Live SA810")
+        self.encryption_password.setEnabled(enabled)
+        if mode == "None":
+            self.encryption_password.clear()
+            self.encryption_password.setPlaceholderText("Not required")
+        elif mode == "Pairing":
+            self.encryption_password.setMaxLength(2)
+            self.encryption_password.setPlaceholderText("2 hex digits, e.g. 01")
+        else:
+            self.encryption_password.setMaxLength(4)
+            self.encryption_password.setPlaceholderText("4 hex digits, e.g. 01A2")
+
+    def apply_listener_encryption(self) -> None:
+        if self.reader_mode.currentText() != "Live SA810":
+            QMessageBox.information(self, "Live reader required",
+                "Select Live SA810 before applying the listener configuration.")
+            return
+        if not self.reader.connected:
+            QMessageBox.warning(self, "Reader disconnected",
+                "Connect to the SA810 before applying the listener configuration.")
+            return
+        if self._live_context is not None or self._listening_for_tags:
+            QMessageBox.warning(self, "Stop inventory first",
+                "Stop listening and finish the current measurement before changing encryption settings.")
+            return
+        mode = self.encryption_mode.currentText()
+        password = self.encryption_password.text()
+        try:
+            self.reader.set_encryption(mode, password)
+        except (OSError, ConnectionError, ValueError) as error:
+            QMessageBox.critical(self, "Listener configuration failed", str(error))
+            return
+        description = "normal, unencrypted tags" if mode == "None" else f"{mode}-encrypted tags"
+        self.statusBar().showMessage(
+            f"Listener configuration sent for {description}")
 
     def toggle_reader_connection(self) -> None:
         if self.reader.connected:

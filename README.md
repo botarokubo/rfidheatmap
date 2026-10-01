@@ -8,6 +8,7 @@ The application supports a live Yanzeo SA810 reader over TCP and includes a simu
 
 - Connect to a Yanzeo SA810 reader over a local network
 - Discover EPC tags and select a reference tag
+- Listen for Yanzeo Pairing- or CRC-encrypted tags using reader-side configuration
 - Configure reader transmit power
 - Record measurements at manual X, Y, and Z coordinates
 - Store individual reads in a local SQLite database
@@ -83,6 +84,20 @@ In RFID Field Mapper:
 4. Click **Connect**.
 5. Click **Apply power to reader** if the power needs to be changed.
 
+### Listening for encrypted tags
+
+The **Encrypted tag listener** section configures the SA810 to inventory tags that were previously encrypted with the Yanzeo demo or another compatible tool.
+
+1. Stop any active tag listener or measurement.
+2. Select **Pairing** for a one-byte password or **CRC** for a two-byte password.
+3. Enter the same hexadecimal password used when the tag was encrypted.
+4. Click **Apply listen configuration**.
+5. Start the tag listener or measurement normally.
+
+Select **None** and apply the configuration to return the reader to normal, unencrypted-tag inventory.
+
+This application only changes the reader's listening configuration. It does not contain or send the Yanzeo command that encrypts or modifies a physical tag. The password must match the tag's existing encryption configuration.
+
 If the connection fails, confirm that the reader is reachable, the IP address and port are correct, and the local firewall allows the connection.
 
 ## Measurement Workflow
@@ -141,6 +156,7 @@ The live reader integration uses the SA810 IR protocol over TCP. The current imp
 - UII/EPC tag reports
 - RSSI extraction
 - Transmit-power configuration
+- Reader-side encrypted-tag listener configuration (None, Pairing, and CRC)
 
 The application stores unavailable frequency and phase fields as zero because they are not present in the reader messages currently handled by the integration. Firmware or protocol variants may require adjustments in `sa810_reader.py`.
 
