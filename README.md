@@ -222,6 +222,11 @@ The result table reports:
 - Detection order (`A -> B` or `B -> A`) and elapsed time between the two readers
 - Whether the person was detected by Reader A, Reader B, both, or neither
 - Registered tags that were completely missed
-- Unregistered EPCs detected during the trial
+
+Only EPCs added in **People and tags** are recorded in walk-through trials,
+displayed in results, and included in CSV exports. Other reports are discarded
+by the app; this does not control the reader's physical buzzer.
+Registered tags that are not detected remain in the results as **Missed**.
+Stop the trial before changing participants.
 
 The CSV uses one row per person/tag and reader so results from multiple trials can be compared easily.

@@ -14,10 +14,10 @@ from pathlib import Path
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QFileDialog, QFormLayout, QGridLayout,
+    QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGridLayout,
     QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow,
     QMessageBox, QPushButton, QSpinBox, QSplitter, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QTableWidgetItem, QTabWidget, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from sa810_reader import Sa810Client
@@ -241,6 +241,21 @@ class WalkThroughWindow(QMainWindow):
         self.trial_number = 1
 
         self._build_ui()
+        self.setStyleSheet("""
+            QMainWindow { background: #f5f7fa; }
+            QWidget { font-family: 'Segoe UI'; font-size: 13px; color: #243247; }
+            QGroupBox { background: white; border: 1px solid #dce2ea;
+                border-radius: 8px; margin-top: 14px; padding: 14px 10px 10px; }
+            QGroupBox::title { subcontrol-origin: margin; left: 12px; font-weight: 600; }
+            QLineEdit, QComboBox, QSpinBox { min-height: 28px; }
+            QPushButton { min-height: 30px; padding: 3px 12px; }
+            QPushButton#primary { background: #2563eb; color: white;
+                border: none; border-radius: 6px; font-weight: 600; }
+            QTableWidget { background: white; alternate-background-color: #f8fafc;
+                border: 1px solid #dce2ea; border-radius: 6px; }
+            QHeaderView::section { background: #eef2f7; border: none;
+                padding: 8px; font-weight: 600; }
+        """)
         self.poll_timer = QTimer(self)
         self.poll_timer.setInterval(50)
         self.poll_timer.timeout.connect(self.poll_readers)
@@ -249,6 +264,8 @@ class WalkThroughWindow(QMainWindow):
     def _build_ui(self) -> None:
         root = QWidget()
         layout = QVBoxLayout(root)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(12)
         title = QLabel("RFID Walk-Through Tester")
         title.setStyleSheet("font-size: 25px; font-weight: 700;")
         layout.addWidget(title)
@@ -262,24 +279,35 @@ class WalkThroughWindow(QMainWindow):
         self.reader_b = ReaderPanel("Reader B", "192.168.2.121")
         readers.addWidget(self.reader_a)
         readers.addWidget(self.reader_b)
-        layout.addLayout(readers)
-
         splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(self._build_setup_panel())
+        setup_scroll = QScrollArea()
+        setup_scroll.setWidgetResizable(True)
+        setup_scroll.setFrameShape(QScrollArea.NoFrame)
+        setup_scroll.setMinimumWidth(360)
+        setup_scroll.setWidget(self._build_setup_panel())
+        splitter.addWidget(setup_scroll)
         splitter.addWidget(self._build_results_panel())
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        layout.addWidget(splitter, 1)
+        tabs = QTabWidget()
+        tabs.addTab(splitter, "Trial & results")
+        reader_page = QWidget()
+        reader_layout = QVBoxLayout(reader_page)
+        reader_layout.addLayout(readers)
+        reader_layout.addStretch()
+        tabs.addTab(reader_page, "Reader setup")
+        layout.addWidget(tabs, 1)
         self.setCentralWidget(root)
 
     def _build_setup_panel(self) -> QWidget:
         panel = QWidget()
-        panel.setMaximumWidth(475)
         layout = QVBoxLayout(panel)
+        layout.setSpacing(16)
 
         participant_box = QGroupBox("People and tags")
         participant_layout = QVBoxLayout(participant_box)
         form = QGridLayout()
+        form.setVerticalSpacing(10)
         self.person_id = QLineEdit()
         self.person_id.setPlaceholderText("Person 1")
         self.epc = QLineEdit()
@@ -311,6 +339,8 @@ class WalkThroughWindow(QMainWindow):
             QHeaderView.ResizeToContents)
         self.participant_table.horizontalHeader().setStretchLastSection(True)
         self.participant_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.participant_table.verticalHeader().hide()
+        self.participant_table.setMinimumHeight(130)
         participant_layout.addWidget(self.participant_table)
         layout.addWidget(participant_box, 1)
 
@@ -324,6 +354,7 @@ class WalkThroughWindow(QMainWindow):
         self.countdown = QLabel("Ready")
         self.countdown.setStyleSheet("font-size: 20px; font-weight: 700;")
         self.start_button = QPushButton("Start walk-through trial")
+        self.start_button.setObjectName("primary")
         self.start_button.setMinimumHeight(42)
         self.start_button.clicked.connect(self.toggle_trial)
         trial_form.addRow("Trial name", self.trial_name)
@@ -336,8 +367,8 @@ class WalkThroughWindow(QMainWindow):
         export.clicked.connect(self.export_csv)
         clear = QPushButton("Clear displayed results")
         clear.clicked.connect(self.clear_results)
-        layout.addWidget(export)
-        layout.addWidget(clear)
+        self.export_button = export
+        self.clear_button = clear
         return panel
 
     def _build_results_panel(self) -> QWidget:
@@ -358,22 +389,45 @@ class WalkThroughWindow(QMainWindow):
             self.summary_labels[key] = card
         layout.addWidget(summary_box)
 
+        toolbar = QHBoxLayout()
+        toolbar.addWidget(QLabel("Trial results"))
+        toolbar.addStretch()
+        self.show_details = QCheckBox("Show reader metrics")
+        self.show_details.toggled.connect(self._toggle_result_details)
+        toolbar.addWidget(self.show_details)
+        toolbar.addWidget(self.export_button)
+        toolbar.addWidget(self.clear_button)
+        layout.addLayout(toolbar)
+
         self.results = QTableWidget(0, len(self.RESULT_COLUMNS))
         self.results.setHorizontalHeaderLabels(self.RESULT_COLUMNS)
         self.results.setAlternatingRowColors(True)
         self.results.setSortingEnabled(True)
+        self.results.verticalHeader().hide()
+        self.results.setShowGrid(False)
+        self.results.setSelectionBehavior(QTableWidget.SelectRows)
+        self.results.setEditTriggers(QTableWidget.NoEditTriggers)
         self.results.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeToContents)
         self.results.horizontalHeader().setStretchLastSection(True)
+        self._toggle_result_details(False)
         layout.addWidget(self.results, 1)
         note = QLabel(
             "RSSI values are dBm. Strongest is the value closest to zero. "
             "First is seconds after the trial started.")
         note.setStyleSheet("color: #555;")
+        note.setWordWrap(True)
         layout.addWidget(note)
         return panel
 
+    def _toggle_result_details(self, visible: bool) -> None:
+        for column in (1, 4, 5, 6, 8, 9, 10):
+            self.results.setColumnHidden(column, not visible)
+
     def add_participant(self) -> None:
+        if self.trial_active:
+            QMessageBox.warning(self, "Trial running", "Stop the trial before changing participants.")
+            return
         person_id = self.person_id.text().strip()
         epc = normalize_epc(self.epc.text())
         placement = self.placement.currentText().strip()
@@ -391,6 +445,9 @@ class WalkThroughWindow(QMainWindow):
         self.epc.clear()
 
     def remove_participant(self) -> None:
+        if self.trial_active:
+            QMessageBox.warning(self, "Trial running", "Stop the trial before changing participants.")
+            return
         rows = sorted({item.row() for item in self.participant_table.selectedItems()},
                       reverse=True)
         for row in rows:
@@ -489,8 +546,9 @@ class WalkThroughWindow(QMainWindow):
         for panel, label in ((self.reader_a, "A"), (self.reader_b, "B")):
             while not panel.client.tags.empty():
                 tag = panel.client.tags.get_nowait()
-                if record:
-                    key = (label, normalize_epc(tag.epc))
+                epc = normalize_epc(tag.epc)
+                if record and epc in self.participants:
+                    key = (label, epc)
                     self.detections.setdefault(key, Detection()).add(
                         tag.received_at, tag.rssi)
 
@@ -519,9 +577,7 @@ class WalkThroughWindow(QMainWindow):
         )
 
     def _render_results(self) -> None:
-        observed = {epc for _, epc in self.detections}
         all_epcs = list(self.participants)
-        all_epcs.extend(sorted(observed - set(self.participants)))
         self.results.setSortingEnabled(False)
         self.results.setRowCount(0)
         detected_either = detected_both = missed = 0
@@ -529,7 +585,7 @@ class WalkThroughWindow(QMainWindow):
         trial_name = self.trial_name.text().strip() or f"Trial {self.trial_number}"
 
         for epc in all_epcs:
-            participant = self.participants.get(epc)
+            participant = self.participants[epc]
             detection_a = self.detections.get(("A", epc))
             detection_b = self.detections.get(("B", epc))
             a = self._metrics(detection_a, start_epoch)
@@ -549,19 +605,14 @@ class WalkThroughWindow(QMainWindow):
             else:
                 detected_by, result, color = "Neither", "Missed", "#fee4e2"
 
-            if participant:
-                if seen_a or seen_b:
-                    detected_either += 1
-                else:
-                    missed += 1
-                if seen_a and seen_b:
-                    detected_both += 1
-                person = participant.person_id
-                placement = participant.placement
+            if seen_a or seen_b:
+                detected_either += 1
             else:
-                person, placement = "Unregistered", "Unknown"
-                result = "Unregistered tag"
-                color = "#e4e7ec"
+                missed += 1
+            if seen_a and seen_b:
+                detected_both += 1
+            person = participant.person_id
+            placement = participant.placement
 
             values = (
                 person, epc, placement,
