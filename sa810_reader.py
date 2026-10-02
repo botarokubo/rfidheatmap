@@ -183,8 +183,8 @@ class Sa810Client:
         self._send_thread.start()
         self.messages.put(f"Connected to {host}:{port}")
 
-    def connect_usb(self) -> None:
-        self.disconnect()
+    @classmethod
+    def list_usb_devices(cls) -> list[dict]:
         try:
             import hid
         except ImportError as error:
@@ -192,19 +192,27 @@ class Sa810Client:
                 "USB support requires hidapi. Install it with: "
                 "python -m pip install hidapi") from error
 
-        devices = [
+        return [
             item for item in hid.enumerate(
-                self.USB_VENDOR_ID, self.USB_PRODUCT_ID)
-            if item.get("interface_number") == self.USB_INTERFACE
+                cls.USB_VENDOR_ID, cls.USB_PRODUCT_ID)
+            if item.get("interface_number") == cls.USB_INTERFACE
         ]
+
+    def connect_usb(self, path: bytes | None = None) -> None:
+        self.disconnect()
+        devices = self.list_usb_devices()
         if not devices:
             raise ConnectionError(
                 "SA810 USB HID interface not found. Connect the reader, "
                 "close the Yanzeo demo, and try again.")
 
+        selected = next(
+            (item for item in devices if path is not None and item["path"] == path),
+            devices[0],
+        )
         device = hid.device()
         try:
-            device.open_path(devices[0]["path"])
+            device.open_path(selected["path"])
             device.set_nonblocking(1)
         except Exception as error:
             try:
@@ -230,8 +238,8 @@ class Sa810Client:
             target=self._send_loop, daemon=True)
         self._receive_thread.start()
         self._send_thread.start()
-        product = devices[0].get("product_string") or "SA810"
-        serial = devices[0].get("serial_number") or "unknown serial"
+        product = selected.get("product_string") or "SA810"
+        serial = selected.get("serial_number") or "unknown serial"
         self.messages.put(f"Connected to {product} over USB ({serial})")
 
     def disconnect(self) -> None:

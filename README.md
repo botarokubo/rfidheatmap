@@ -2,7 +2,9 @@
 
 RFID Field Mapper is a desktop application for measuring and visualizing RAIN RFID coverage. It records tag reads at manually entered coordinates and displays the results as a two-dimensional heatmap for a selected height and reader power.
 
-The application supports a live Yanzeo SA810 reader over TCP and includes a simulator for testing without RFID hardware.
+The application supports a live Yanzeo SA810 reader over LAN or USB HID and includes a simulator for testing without RFID hardware.
+
+This repository also includes a separate **RFID Walk-Through Tester** for comparing two readers while one or more people carrying tags walk through a detection area.
 
 ## Features
 
@@ -179,6 +181,8 @@ The application stores unavailable frequency and phase fields as zero because th
 heatmap.py          Main interface, storage, analysis, and export logic
 sa810_reader.py     SA810 LAN/USB protocol client and tag report parser
 run_heatmap.bat     Optional Windows launcher
+walkthrough.py      Two-reader walk-through detection tester
+run_walkthrough.bat Optional Windows launcher for the walk-through tester
 ```
 
 ## Current Limitations
@@ -187,3 +191,37 @@ run_heatmap.bat     Optional Windows launcher
 - Live reader support is currently focused on the Yanzeo SA810 protocol.
 - RSSI values depend on the reader firmware and are not a direct distance measurement.
 - Only one application should control the reader connection at a time.
+
+## Two-Reader Walk-Through Tester
+
+Run the second application with:
+
+```bash
+python walkthrough.py
+```
+
+On Windows, `run_walkthrough.bat` can be used instead.
+
+The walk-through tester is intended for experiments where people carry RFID tags at positions such as the neck, chest, front pocket, back pocket, waist, wrist, or bag and walk between two readers.
+
+### Walk-through workflow
+
+1. Configure and connect **Reader A** and **Reader B** over LAN or USB HID.
+2. Set the required transmit power and encrypted-tag listener settings.
+3. Register each person using a person ID, EPC, and tag placement.
+4. Enter a trial name and duration.
+5. Click **Start walk-through trial**, then have the participants walk through the reader area.
+6. Review detection results for each person and reader.
+7. Export the accumulated trial results to CSV.
+
+The result table reports:
+
+- Read count from each reader
+- Average and strongest RSSI from each reader
+- First detection time relative to the trial start
+- Detection order (`A -> B` or `B -> A`) and elapsed time between the two readers
+- Whether the person was detected by Reader A, Reader B, both, or neither
+- Registered tags that were completely missed
+- Unregistered EPCs detected during the trial
+
+The CSV uses one row per person/tag and reader so results from multiple trials can be compared easily.
